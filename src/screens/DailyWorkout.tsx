@@ -9,18 +9,22 @@ import {
   TextInput,
   Modal,
   ScrollView,
+  Platform,
+  StatusBar,
 } from "react-native";
+import { useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import { Picker } from "@react-native-picker/picker";
 import { ExerciseCard } from "../components/ExerciseCard";
 import { RestTimer } from "../components/RestTimer";
 import { ExerciseSearch } from "../components/ExerciseSearch";
-import { loadWorkout, saveWorkout, saveExercise, removeExercise } from "../services/storage";
-import { getTodayDate, formatDate } from "../utils/date";
+import { CalendarView } from "./CalendarView";
+import { loadWorkout, saveWorkout, saveExercise, removeExercise, copyWorkout, getLastWorkout } from "../services/storage";
+import { getTodayDate, getRelativeDateLabel, formatDate, parseDate } from "../utils/date";
 import { generateId } from "../utils/uuid";
 import { Workout, Exercise } from "../types/workout";
 import { COMMON_EXERCISES } from "../utils/commonExercises";
 import { Colors } from "../theme/colors";
-import { calculateDailyProgress, getProgressColor } from "../utils/progress";
 
 interface DailyWorkoutProps {
   date?: string;
@@ -38,9 +42,30 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
   const [useCustomInput, setUseCustomInput] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
 
-  const currentDate = date || getTodayDate();
-  const progress = calculateDailyProgress(workout);
+  const [currentDate, setCurrentDate] = useState(date || getTodayDate());
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [showCopyPicker, setShowCopyPicker] = useState(false);
 
+  const touchX = React.useRef(0);
+
+  useEffect(() => {
+    if (date && date !== currentDate) {
+      setCurrentDate(date);
+    }
+  }, [date]);
+
+  // Use useFocusEffect to reload data whenever the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadWorkoutData();
+    }, [currentDate])
+  );
+
+  // We also keep the useEffect for currentDate changes if they happen while focused
+  // purely to ensure we catch date changes if they don't trigger focus (e.g. internal state)
+  // But useFocusEffect handles the "Back" navigation case.
+
+  // OPTIMISTIC UI: Reload workout data whenever currentDate changes
   useEffect(() => {
     loadWorkoutData();
   }, [currentDate]);
@@ -49,17 +74,23 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
     setLoading(true);
     try {
       let data = await loadWorkout(currentDate);
-      
+
+      // If no data exists, we don't auto-create it immediately unless the user adds something
+      // But for UI consistency we set a blank workout object in state with Today's date
+      // This allows the "Copy Previous" button to be shown on empty days
       if (!data) {
         data = {
           date: currentDate,
           exercises: [],
         };
+        // We do typically save it to "initialize" the day in storage to be safe, 
+        // ensuring the date key exists, but strictly optional if we handle nulls well.
+        // Current logic was:
         await saveWorkout(data);
       }
-      
+
       setWorkout(data);
-      
+
       if (onDateChange) {
         onDateChange(currentDate);
       }
@@ -71,9 +102,71 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
     }
   };
 
+  const handleDateNavigate = (direction: -1 | 1) => {
+    const dateObj = parseDate(currentDate);
+    dateObj.setDate(dateObj.getDate() + direction);
+    const newDate = formatDate(dateObj);
+
+    // OPTIMISTIC UPDATE: Change date immediately for snappy UI
+    // The useEffect will trigger loadWorkoutData automatically
+    setCurrentDate(newDate);
+  };
+
+  const handleCopyPrevious = () => {
+    // Show picker instead of automatic copy based on user request
+    setShowCopyPicker(true);
+  };
+
+  const handleCopyFromDate = async (sourceDate: string) => {
+    setLoading(true);
+    try {
+      if (sourceDate === currentDate) {
+        Alert.alert("Invalid", "Cannot copy from the same day");
+        setLoading(false);
+        return;
+      }
+
+      const success = await copyWorkout(sourceDate, currentDate);
+      if (success) {
+        await loadWorkoutData();
+        Alert.alert("Success", `Copied workout from ${getRelativeDateLabel(sourceDate)}`);
+        setShowCopyPicker(false);
+      } else {
+        Alert.alert("Error", "Failed to copy workout from " + sourceDate);
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Error", "Failed to copy workout");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMoveExercise = async (index: number, direction: -1 | 1) => {
+    if (!workout) return;
+
+    // Check bounds
+    if (index + direction < 0 || index + direction >= workout.exercises.length) return;
+
+    const newExercises = [...workout.exercises];
+    // Swap
+    const temp = newExercises[index];
+    newExercises[index] = newExercises[index + direction];
+    newExercises[index + direction] = temp;
+
+    // Updates local state immediately for responsiveness
+    const updated = { ...workout, exercises: newExercises };
+    setWorkout(updated);
+
+    // Save
+    await saveWorkout(updated);
+  };
+
+
+
   const handleAddExercise = async (exerciseName?: string) => {
     let name = exerciseName || "";
-    
+
     if (!name) {
       if (useCustomInput) {
         name = newExerciseName.trim();
@@ -81,7 +174,7 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
         name = selectedCommonExercise;
       }
     }
-    
+
     if (!name) {
       Alert.alert("Error", "Please select or enter an exercise name");
       return;
@@ -156,34 +249,35 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerTop}>
+          <TouchableOpacity
+            style={styles.dateNavButton}
+            onPress={() => handleDateNavigate(-1)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={styles.dateNavText}>‹</Text>
+          </TouchableOpacity>
+
           <View style={styles.dateContainer}>
-            <Text style={styles.dateText}>{formatDate(new Date(currentDate))}</Text>
-            <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
-                <View 
-                  style={[
-                    styles.progressFill, 
-                    { width: `${progress}%`, backgroundColor: getProgressColor(progress) }
-                  ]} 
-                />
-              </View>
-              <Text style={styles.progressText}>{progress}%</Text>
-            </View>
+            <Text style={styles.dateText}>{getRelativeDateLabel(currentDate).toUpperCase()}</Text>
+            <Text style={styles.fullDateText}>{parseDate(currentDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</Text>
           </View>
+
+          <TouchableOpacity
+            style={styles.dateNavButton}
+            onPress={() => handleDateNavigate(1)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={styles.dateNavText}>›</Text>
+          </TouchableOpacity>
+
           <View style={styles.headerActions}>
             {navigation && (
               <>
                 <TouchableOpacity
                   style={styles.navButton}
-                  onPress={() => navigation.navigate("Calendar")}
+                  onPress={() => setShowCalendar(true)}
                 >
                   <Text style={styles.navButtonText}>📅</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.navButton}
-                  onPress={() => navigation.navigate("WorkoutSummary", { date: currentDate })}
-                >
-                  <Text style={styles.navButtonText}>📊</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.navButton}
@@ -195,7 +289,7 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
             )}
           </View>
         </View>
-        
+
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => setShowSearch(!showSearch)}
@@ -204,32 +298,58 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {showSearch && (
-          <ExerciseSearch
-            onSelect={(name) => handleAddExercise(name)}
-            onClose={() => setShowSearch(false)}
-          />
-        )}
-
-        <RestTimer />
-
-        {workout.exercises.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>NO EXERCISES YET</Text>
-            <Text style={styles.emptySubtext}>Tap "+ ADD EXERCISE" to get started</Text>
+      <View
+        style={styles.content}
+        onTouchStart={e => touchX.current = e.nativeEvent.pageX}
+        onTouchEnd={e => {
+          if (touchX.current - e.nativeEvent.pageX > 50) handleDateNavigate(1);
+          if (e.nativeEvent.pageX - touchX.current > 50) handleDateNavigate(-1);
+        }}
+      >
+        {showSearch ? (
+          <View style={styles.searchContainer}>
+            <ExerciseSearch
+              onSelect={(name) => handleAddExercise(name)}
+              onClose={() => setShowSearch(false)}
+            />
           </View>
         ) : (
-          workout.exercises.map((item) => (
-            <ExerciseCard
-              key={item.id}
-              exercise={item}
-              onPress={() => onExercisePress(item, currentDate)}
-              onRemove={() => handleRemoveExercise(item.id)}
-            />
-          ))
+          <FlatList
+            data={workout.exercises}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.contentContainer}
+            renderItem={({ item, index }) => (
+              <ExerciseCard
+                exercise={item}
+                onPress={() => onExercisePress(item, currentDate)}
+                onRemove={() => handleRemoveExercise(item.id)}
+                onMoveUp={index > 0 ? () => handleMoveExercise(index, -1) : undefined}
+                onMoveDown={index < workout.exercises.length - 1 ? () => handleMoveExercise(index, 1) : undefined}
+              />
+            )}
+            ListHeaderComponent={<RestTimer />}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>NO EXERCISES YET</Text>
+                <View style={styles.emptyActions}>
+                  <TouchableOpacity
+                    style={styles.emptyActionButton}
+                    onPress={() => setShowSearch(true)}
+                  >
+                    <Text style={styles.emptyActionText}>+ Add Exercise</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.emptyActionButton}
+                    onPress={handleCopyPrevious}
+                  >
+                    <Text style={styles.emptyActionText}>📋 Copy Workout</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            }
+          />
         )}
-      </ScrollView>
+      </View>
 
       <Modal
         visible={showAddExercise}
@@ -245,7 +365,7 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>ADD EXERCISE</Text>
-            
+
             <View style={styles.inputModeToggle}>
               <TouchableOpacity
                 style={[
@@ -301,7 +421,7 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
                 >
                   <Picker.Item label="Select an exercise..." value="" />
                   {COMMON_EXERCISES.map((exercise) => (
-                    <Picker.Item key={exercise} label={exercise} value={exercise} />
+                    <Picker.Item key={exercise.name} label={exercise.name} value={exercise.name} />
                   ))}
                 </Picker>
               </View>
@@ -329,6 +449,42 @@ export function DailyWorkout({ date, onExercisePress, onDateChange, navigation }
           </View>
         </View>
       </Modal>
+
+
+      <Modal
+        visible={showCalendar}
+        animationType="slide"
+        onRequestClose={() => setShowCalendar(false)}
+      >
+        <CalendarView
+          onClose={() => setShowCalendar(false)}
+          onDateSelect={(date) => {
+            setShowCalendar(false);
+            if (onDateChange) onDateChange(date);
+          }}
+        />
+      </Modal>
+
+      <Modal
+        visible={showCopyPicker}
+        animationType="slide"
+        onRequestClose={() => setShowCopyPicker(false)}
+      >
+        <CalendarView
+          onClose={() => setShowCopyPicker(false)}
+          onDateSelect={(date) => {
+            // Confirm copy
+            Alert.alert(
+              "Copy Workout",
+              "Copy workout from " + getRelativeDateLabel(date) + " to today?",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Copy", onPress: () => handleCopyFromDate(date) }
+              ]
+            );
+          }}
+        />
+      </Modal>
     </View>
   );
 }
@@ -341,6 +497,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: Colors.surface,
     padding: 16,
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 16 : 16,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
@@ -352,14 +509,22 @@ const styles = StyleSheet.create({
   },
   dateContainer: {
     flex: 1,
+    alignItems: "center", // Center align
   },
   dateText: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "900",
     color: Colors.textPrimary,
-    flex: 1,
     letterSpacing: 1,
+    marginBottom: 4,
+  },
+  fullDateText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.textSecondary,
     marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   progressContainer: {
     flexDirection: "row",
@@ -562,5 +727,94 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     letterSpacing: 0.5,
+  },
+  dateNavButton: {
+    padding: 8,
+    width: 32,
+    alignItems: 'center',
+  },
+  dateNavText: {
+    fontSize: 24,
+    color: Colors.accent,
+    fontWeight: '300',
+    lineHeight: 28,
+  },
+  splitBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.card,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  splitText: {
+    fontSize: 12,
+    color: Colors.accent,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  emptyActions: {
+    width: '100%',
+    gap: 12,
+    marginTop: 24,
+  },
+  emptyActionButton: {
+    backgroundColor: Colors.card,
+    paddingVertical: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  emptyActionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    letterSpacing: 0.5,
+  },
+  splitPickerContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 24,
+    width: '80%',
+    maxWidth: 320,
+    alignSelf: 'center',
+    marginBottom: 'auto',
+    marginTop: 'auto',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  splitList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 24,
+  },
+  splitItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  splitItemActive: {
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
+  },
+  splitItemText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  splitItemTextActive: {
+    color: Colors.textPrimary,
+    fontWeight: '700',
+  },
+  searchContainer: {
+    padding: 16,
+    width: '100%',
   },
 });

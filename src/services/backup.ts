@@ -87,8 +87,8 @@ export async function exportBackup(): Promise<string | null> {
   try {
     // Get all workouts
     const workouts = await getAllWorkouts();
-    const dates = await getAllWorkoutDates();
 
+    // We don't really need dates separately if we have workouts, but keeping logic
     const backupData: BackupData = {
       version: BACKUP_VERSION,
       exportDate: new Date().toISOString(),
@@ -99,7 +99,8 @@ export async function exportBackup(): Promise<string | null> {
     // Create filename with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
     const filename = `gym-logger-backup-${timestamp}.json`;
-    const fileUri = `${FileSystem.documentDirectory}${filename}`;
+    // Use cache directory for sharing as it's more reliable for temporary files
+    const fileUri = `${FileSystem.cacheDirectory}${filename}`;
 
     // Write file
     await FileSystem.writeAsStringAsync(
@@ -111,7 +112,7 @@ export async function exportBackup(): Promise<string | null> {
     return fileUri;
   } catch (error) {
     console.error("Error exporting backup:", error);
-    Alert.alert("Export Failed", "Failed to create backup file. Please try again.");
+    Alert.alert("Export Failed", `Failed to create backup file: ${error}. Please try again.`);
     return null;
   }
 }

@@ -9,24 +9,77 @@ import {
 } from "react-native";
 import { COMMON_EXERCISES } from "../utils/commonExercises";
 import { Colors } from "../theme/colors";
+import { getCustomExercises, saveCustomExercise } from "../services/storage";
+import { Exercise } from "../types/workout";
 
 interface ExerciseSearchProps {
   onSelect: (exerciseName: string) => void;
   onClose?: () => void;
 }
 
+// Helper type for the list items
+interface SearchItem {
+  name: string;
+  category: string;
+}
+
 export function ExerciseSearch({ onSelect, onClose }: ExerciseSearchProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [customExercises, setCustomExercises] = useState<SearchItem[]>([]);
+
+  React.useEffect(() => {
+    loadCustom();
+  }, []);
+
+  const loadCustom = async () => {
+    const loaded = await getCustomExercises();
+    // Convert to simple SearchItem format
+    const formatted = loaded.map(e => ({ name: e.name, category: e.category || 'Custom' }));
+    setCustomExercises(formatted);
+  };
+
+  const allExercises = useMemo(() => {
+    // Merge common and custom, removing duplicates by name
+    const combined = [...customExercises, ...COMMON_EXERCISES];
+    // Quick dedup
+    const seen = new Set();
+    return combined.filter(el => {
+      const duplicate = seen.has(el.name.toLowerCase());
+      seen.add(el.name.toLowerCase());
+      return !duplicate;
+    });
+  }, [customExercises]);
 
   const filteredExercises = useMemo(() => {
     if (!searchQuery.trim()) {
-      return COMMON_EXERCISES.slice(0, 10); // Show first 10 when no search
+      return allExercises.slice(0, 50);
     }
     const query = searchQuery.toLowerCase();
-    return COMMON_EXERCISES.filter((exercise) =>
-      exercise.toLowerCase().includes(query)
+    return allExercises.filter((exercise) =>
+      exercise.name.toLowerCase().includes(query) ||
+      exercise.category.toLowerCase().includes(query)
     );
-  }, [searchQuery]);
+  }, [searchQuery, allExercises]);
+
+  const handleCustomAdd = async () => {
+    const name = searchQuery.trim();
+    if (!name) return;
+
+    // Save to global list
+    // We don't have category picker yet for custom, default to 'Other' or 'Custom'
+    // The user requirement says "permanently saved". 
+    // Ideally we'd ask for category, but for now we just save.
+
+    await saveCustomExercise({
+      id: "placeholder", // ID generated on use
+      name: name,
+      sets: [],
+      category: "Other"
+    });
+
+    onSelect(name);
+    setSearchQuery("");
+  };
 
   return (
     <View style={styles.container}>
@@ -38,7 +91,7 @@ export function ExerciseSearch({ onSelect, onClose }: ExerciseSearchProps) {
           </TouchableOpacity>
         )}
       </View>
-      
+
       <TextInput
         style={styles.searchInput}
         placeholder="Search exercises..."
@@ -50,18 +103,33 @@ export function ExerciseSearch({ onSelect, onClose }: ExerciseSearchProps) {
 
       <FlatList
         data={filteredExercises}
-        keyExtractor={(item) => item}
+        keyExtractor={(item) => item.name}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.exerciseItem}
             onPress={() => {
-              onSelect(item);
+              onSelect(item.name); // We pass just the name back to keep it simple for now, or could pass category too
               setSearchQuery("");
             }}
           >
-            <Text style={styles.exerciseText}>{item}</Text>
+            <View>
+              <Text style={styles.exerciseText}>{item.name}</Text>
+              <Text style={styles.categoryText}>{item.category}</Text>
+            </View>
           </TouchableOpacity>
         )}
+        ListFooterComponent={() =>
+          searchQuery.length > 0 && !filteredExercises.some(e => e.name.toLowerCase() === searchQuery.toLowerCase()) ? (
+            <TouchableOpacity
+              style={[styles.exerciseItem, { borderBottomWidth: 0, marginTop: 8 }]}
+              onPress={handleCustomAdd}
+            >
+              <Text style={[styles.exerciseText, { color: Colors.accent }]}>
+                + Add "{searchQuery}" to Library
+              </Text>
+            </TouchableOpacity>
+          ) : null
+        }
         style={styles.list}
         keyboardShouldPersistTaps="handled"
       />
@@ -125,6 +193,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textPrimary,
     fontWeight: "500",
+  },
+  categoryText: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    marginTop: 2,
+    textTransform: "uppercase",
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
 });
 

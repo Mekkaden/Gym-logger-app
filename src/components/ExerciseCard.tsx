@@ -7,9 +7,11 @@ interface ExerciseCardProps {
   exercise: Exercise;
   onPress: () => void;
   onRemove: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }
 
-export function ExerciseCard({ exercise, onPress, onRemove }: ExerciseCardProps) {
+export function ExerciseCard({ exercise, onPress, onRemove, onMoveUp, onMoveDown }: ExerciseCardProps) {
   const totalSets = exercise.sets.length;
   const hasRIR = exercise.sets.some((set) => set.rir !== undefined);
   const hasNotes = exercise.notes && exercise.notes.trim().length > 0;
@@ -17,7 +19,21 @@ export function ExerciseCard({ exercise, onPress, onRemove }: ExerciseCardProps)
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.header}>
-        <Text style={styles.name}>{exercise.name.toUpperCase()}</Text>
+        <View style={styles.headerLeft}>
+          <View style={styles.moveButtons}>
+            {onMoveUp && (
+              <TouchableOpacity onPress={(e) => { e.stopPropagation(); onMoveUp(); }} style={styles.moveBtn}>
+                <Text style={styles.moveText}>▲</Text>
+              </TouchableOpacity>
+            )}
+            {onMoveDown && (
+              <TouchableOpacity onPress={(e) => { e.stopPropagation(); onMoveDown(); }} style={styles.moveBtn}>
+                <Text style={styles.moveText}>▼</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={styles.name}>{exercise.name.toUpperCase()}</Text>
+        </View>
         <TouchableOpacity
           onPress={(e) => {
             e.stopPropagation();
@@ -28,13 +44,13 @@ export function ExerciseCard({ exercise, onPress, onRemove }: ExerciseCardProps)
           <Text style={styles.removeText}>×</Text>
         </TouchableOpacity>
       </View>
-      
+
       {hasNotes && (
         <View style={styles.notesContainer}>
           <Text style={styles.notesText} numberOfLines={2}>{exercise.notes}</Text>
         </View>
       )}
-      
+
       <View style={styles.setsContainer}>
         {exercise.sets.length === 0 ? (
           <Text style={styles.emptyText}>NO SETS YET</Text>
@@ -50,7 +66,7 @@ export function ExerciseCard({ exercise, onPress, onRemove }: ExerciseCardProps)
           ))
         )}
       </View>
-      
+
       <Text style={styles.footer}>
         {totalSets} SET{totalSets !== 1 ? "S" : ""}
       </Text>
@@ -72,6 +88,33 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 8,
+  },
+  moveButtons: {
+    flexDirection: 'column',
+    gap: 2,
+    marginRight: 8,
+  },
+  moveBtn: {
+    padding: 2,
+    backgroundColor: Colors.surface,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moveText: {
+    fontSize: 10,
+    color: Colors.accent,
+    lineHeight: 12,
   },
   name: {
     fontSize: 16,

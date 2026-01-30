@@ -9,11 +9,11 @@ import {
   Alert,
 } from "react-native";
 import { Exercise, Set, Workout } from "../types/workout";
-import { loadWorkout, saveExercise, getWorkoutsForExercise } from "../services/storage";
+import { loadWorkout, saveExercise, getWorkoutsForExercise, checkPR, getAllSetsForExercise } from "../services/storage";
 import { validateWeight, validateReps, validateRIR } from "../utils/validation";
 import { SetRow } from "../components/SetRow";
 import { RestTimer } from "../components/RestTimer";
-import { formatDate, parseDate } from "../utils/date";
+import { formatDate, parseDate, getRelativeDateLabel } from "../utils/date";
 import { estimate1RM } from "../utils/1rm";
 import { Colors } from "../theme/colors";
 import Svg, { Polyline, Circle } from "react-native-svg";
@@ -36,6 +36,7 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
   const [historyWorkouts, setHistoryWorkouts] = useState<Workout[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [graphTimeFilter, setGraphTimeFilter] = useState<"1m" | "3m" | "6m" | "1y" | "all">("all");
+  const [editingSetIndex, setEditingSetIndex] = useState<number | null>(null);
 
   useEffect(() => {
     loadExerciseData();
@@ -95,15 +96,27 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
       return;
     }
 
+    const isPR = await checkPR(currentExercise.name, validWeight, validReps);
+
     const newSet: Set = {
       weight: validWeight,
       reps: validReps,
-      rir: validRIR,
+      rir: validRIR === null ? undefined : validRIR,
+      isPR: isPR,
     };
+
+    let updatedSets = [...currentExercise.sets];
+    if (editingSetIndex !== null) {
+      // Update existing
+      updatedSets[editingSetIndex] = newSet;
+    } else {
+      // Add new
+      updatedSets.push(newSet);
+    }
 
     const updatedExercise: Exercise = {
       ...currentExercise,
-      sets: [...currentExercise.sets, newSet],
+      sets: updatedSets,
     };
 
     const success = await saveExercise(date, updatedExercise);
@@ -112,10 +125,13 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
       setWeight("");
       setReps("");
       setRIR("");
+      setEditingSetIndex(null); // Reset edit mode
       // Auto-save notes if changed
       if (notes.trim() !== (currentExercise.notes || "")) {
         handleSaveNotes();
       }
+      // IMMEDIATE UPDATE: Reload history so graph and history tab are fresh
+      await loadHistory();
     } else {
       Alert.alert("Error", "Failed to save set");
     }
@@ -131,6 +147,7 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
     const success = await saveExercise(date, updatedExercise);
     if (success) {
       setCurrentExercise(updatedExercise);
+      await loadHistory();
     } else {
       Alert.alert("Error", "Failed to remove set");
     }
@@ -153,6 +170,7 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
             const success = await saveExercise(date, updatedExercise);
             if (success) {
               setCurrentExercise(updatedExercise);
+              await loadHistory();
             }
           },
         },
@@ -181,10 +199,32 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
   const loadHistory = async () => {
     setLoadingHistory(true);
     try {
-      const workouts = await getWorkoutsForExercise(exercise.id);
-      // Sort by date descending (most recent first)
-      workouts.sort((a, b) => b.date.localeCompare(a.date));
-      setHistoryWorkouts(workouts);
+      // Use new flattened history function
+      const allSets = await getAllSetsForExercise(exercise.name);
+
+      // Group by date for display
+      const grouped: Workout[] = []; // Re-using Workout type structure for compatibility or custom object?
+      // Let's create a custom structure for the view state or map it to what we had
+      // The current state is `historyWorkouts: Workout[]`.
+      // getAllSetsForExercise returns { date, set }[]
+
+      // I need to group them back into "sessions" for the UI to render headers
+      const groups: { [date: string]: Set[] } = {};
+      allSets.forEach((item: { date: string; set: Set }) => {
+        if (!groups[item.date]) groups[item.date] = [];
+        groups[item.date].push(item.set);
+      });
+
+      const reconstructedWorkouts: Workout[] = Object.keys(groups).map(date => ({
+        date,
+        exercises: [{
+          id: exercise.id,
+          name: exercise.name,
+          sets: groups[date]
+        }],
+      })).sort((a, b) => b.date.localeCompare(a.date));
+
+      setHistoryWorkouts(reconstructedWorkouts);
     } catch (error) {
       console.error("Error loading history:", error);
     } finally {
@@ -193,30 +233,60 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
   };
 
   const renderHistorySession = (workout: Workout) => {
-    const exerciseData = workout.exercises.find((e) => e.id === exercise.id);
-    if (!exerciseData || exerciseData.sets.length === 0) return null;
+    // workout.exercises[0] contains the sets for this exercise
+    const sets = workout.exercises[0]?.sets || [];
+    if (sets.length === 0) return null;
 
-    const dateObj = parseDate(workout.date);
     const isToday = workout.date === date;
+    const dateOptions: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' };
+    // Force UTC for display to avoid timezone shifts if date is YYYY-MM-DD
+    const dateObj = parseDate(workout.date);
+    const sessionDate = dateObj.toLocaleDateString('en-US', dateOptions).toUpperCase();
 
     return (
       <View key={workout.date} style={styles.historySession}>
         <View style={styles.historyHeader}>
           <Text style={styles.historyDate}>
-            {isToday ? "Today" : formatDate(dateObj)}
-          </Text>
-          <Text style={styles.historySetCount}>
-            {exerciseData.sets.length} set{exerciseData.sets.length !== 1 ? "s" : ""}
+            {isToday ? "TODAY" : sessionDate}
           </Text>
         </View>
-        {exerciseData.sets.map((set, index) => (
-          <View key={index} style={styles.historySet}>
-            <Text style={styles.historySetText}>
-              {set.weight}kg × {set.reps}
-              {set.rir !== undefined && ` @ ${set.rir} RIR`}
-            </Text>
-          </View>
-        ))}
+        <View style={styles.historyList}>
+          {sets.map((set, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.historySet}
+              onPress={() => {
+                // TAP TO FILL (FitNotes behavior)
+                // This populates the inputs with this set's values so you can log it for TODAY
+                setWeight(set.weight.toString());
+                setReps(set.reps.toString());
+                if (set.rir !== undefined) setRIR(set.rir.toString());
+
+                // IMPORTANT: Do NOT set editingIndex if it's not today's workout.
+                // We are copying the set values to the form, but adding a NEW set.
+                if (isToday) {
+                  // If it IS today, we edit it
+                  handleSetPress(set, index); // This sets editing index
+                } else {
+                  setEditingSetIndex(null); // Ensure we are in "Add" mode
+                  Alert.alert("Values Copied", "Set values copied to input.");
+                }
+              }}
+            >
+              <View style={styles.historySetInfo}>
+                <View style={styles.historyTrophyContainer}>
+                  {set.isPR ? <Text style={styles.historyPR}>🏆</Text> : <View style={styles.trophyPlaceholder} />}
+                </View>
+                <Text style={styles.historySetText}>
+                  {set.weight} <Text style={styles.unit}>kg</Text> × {set.reps} <Text style={styles.unit}>reps</Text>
+                </Text>
+                {set.rir !== undefined && (
+                  <Text style={styles.historyRIR}>{set.rir} RIR</Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
     );
   };
@@ -224,7 +294,7 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
   const getGraphData = () => {
     const now = new Date();
     const filterDate = new Date();
-    
+
     switch (graphTimeFilter) {
       case "1m":
         filterDate.setMonth(now.getMonth() - 1);
@@ -257,7 +327,7 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
       // Find max 1RM for this session
       let max1RM = 0;
       exerciseData.sets.forEach((set) => {
-        const rm = estimate1RM(set.weight, set.reps);
+        const rm = estimate1RM(set.weight, set.reps, set.rir);
         if (rm > max1RM) {
           max1RM = rm;
         }
@@ -344,6 +414,24 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
         </View>
       </View>
     );
+  };
+
+  const handleSetPress = (set: Set, index: number) => {
+    setWeight(set.weight.toString());
+    setReps(set.reps.toString());
+    if (set.rir !== undefined) {
+      setRIR(set.rir.toString());
+    } else {
+      setRIR("");
+    }
+    setEditingSetIndex(index);
+  };
+
+  const handleCancelEdit = () => {
+    setWeight("");
+    setReps("");
+    setRIR("");
+    setEditingSetIndex(null);
   };
 
   return (
@@ -490,14 +578,26 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
                 style={[styles.actionButton, styles.saveButton]}
                 onPress={handleAddSet}
               >
-                <Text style={styles.saveButtonText}>SAVE SET</Text>
+                <Text style={styles.saveButtonText}>
+                  {editingSetIndex !== null ? "UPDATE SET" : "SAVE SET"}
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.clearButton]}
-                onPress={handleClear}
-              >
-                <Text style={styles.clearButtonText}>CLEAR ALL</Text>
-              </TouchableOpacity>
+
+              {editingSetIndex !== null ? (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.cancelEditButton]}
+                  onPress={handleCancelEdit}
+                >
+                  <Text style={styles.cancelButtonText}>CANCEL EDIT</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.clearButton]}
+                  onPress={handleClear}
+                >
+                  <Text style={styles.clearButtonText}>CLEAR ALL</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -529,6 +629,7 @@ export function ExerciseDetail({ exercise, date, onBack }: ExerciseDetailProps) 
                   set={set}
                   index={index}
                   onRemove={() => handleRemoveSet(index)}
+                  onPress={() => handleSetPress(set, index)}
                 />
               ))
             )}
@@ -737,6 +838,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.5,
   },
+  cancelEditButton: {
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  cancelButtonText: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
   notesSection: {
     backgroundColor: Colors.card,
     padding: 16,
@@ -804,40 +916,58 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   historySession: {
-    backgroundColor: Colors.card,
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    marginBottom: 24,
   },
   historyHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.divider,
+    marginBottom: 8,
+    paddingBottom: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.accent,
   },
   historyDate: {
     fontSize: 14,
     fontWeight: "700",
-    color: Colors.textPrimary,
-    letterSpacing: 0.5,
+    color: Colors.accent,
+    textTransform: "uppercase",
   },
-  historySetCount: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: "600",
+  historyList: {
+    paddingLeft: 8,
   },
   historySet: {
-    paddingVertical: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  historySetInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  historyTrophyContainer: {
+    width: 24,
+    alignItems: "center",
+    marginRight: 8,
+  },
+  trophyPlaceholder: {
+    width: 16,
   },
   historySetText: {
-    fontSize: 13,
+    fontSize: 16,
+    color: Colors.textPrimary,
+    fontWeight: "600",
+  },
+  unit: {
+    fontSize: 12,
+    color: Colors.textTertiary,
+    fontWeight: "400",
+  },
+  historyRIR: {
+    fontSize: 12,
     color: Colors.textSecondary,
+    marginLeft: 12,
     fontWeight: "500",
+  },
+  historyPR: {
+    fontSize: 16,
   },
   timeFilterContainer: {
     flexDirection: "row",

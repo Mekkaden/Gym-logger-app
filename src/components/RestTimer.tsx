@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Vibration } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Vibration, AppState, AppStateStatus, TextInput } from "react-native";
 import { Colors } from "../theme/colors";
 
 interface RestTimerProps {
@@ -7,26 +7,38 @@ interface RestTimerProps {
 }
 
 export function RestTimer({ onComplete }: RestTimerProps) {
-  const [seconds, setSeconds] = useState(0);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+
+  // Store the timestamp when the timer should end
+  const endTimeRef = useRef<number | null>(null);
+  // Store the timestamp when paused, to calculate remaining time on resume
+  const pausedTimeRef = useRef<number | null>(null);
+
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
-    if (isRunning && !isPaused && seconds > 0) {
+    const subscription = AppState.addEventListener("change", handleAppStateChange);
+    return () => {
+      subscription.remove();
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isRunning && remainingSeconds > 0) {
       intervalRef.current = setInterval(() => {
-        setSeconds((prev) => {
-          if (prev <= 1) {
-            setIsRunning(false);
-            // Vibrate on completion
-            Vibration.vibrate([0, 500, 100, 500]);
-            if (onComplete) {
-              onComplete();
-            }
-            return 0;
-          }
-          return prev - 1;
-        });
+        if (!endTimeRef.current) return;
+
+        const now = Date.now();
+        const left = Math.ceil((endTimeRef.current - now) / 1000);
+
+        if (left <= 0) {
+          completeTimer();
+        } else {
+          setRemainingSeconds(left);
+        }
       }, 1000);
     } else {
       if (intervalRef.current) {
@@ -36,42 +48,69 @@ export function RestTimer({ onComplete }: RestTimerProps) {
     }
 
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isRunning, isPaused, seconds, onComplete]);
+  }, [isRunning, remainingSeconds]);
+
+  const handleAppStateChange = (nextAppState: AppStateStatus) => {
+    if (appState.current.match(/inactive|background/) && nextAppState === "active") {
+      // App came to foreground
+      if (isRunning && endTimeRef.current) {
+        const now = Date.now();
+        const left = Math.ceil((endTimeRef.current - now) / 1000);
+        if (left <= 0) {
+          // We missed the end while backgrounded
+          completeTimer();
+        } else {
+          setRemainingSeconds(left);
+        }
+      }
+    }
+    appState.current = nextAppState;
+  };
+
+  const completeTimer = () => {
+    setRemainingSeconds(0);
+    setIsRunning(false);
+    endTimeRef.current = null;
+    Vibration.vibrate([0, 500, 100, 500]);
+    if (onComplete) onComplete();
+  };
 
   const startTimer = (duration: number) => {
-    setSeconds(duration);
+    const now = Date.now();
+    endTimeRef.current = now + duration * 1000;
+    setRemainingSeconds(duration);
     setIsRunning(true);
-    setIsPaused(false);
+    pausedTimeRef.current = null;
   };
 
   const pauseTimer = () => {
-    setIsPaused(true);
+    if (!endTimeRef.current) return;
+    const now = Date.now();
+    // Calculate how much time was left
+    const left = Math.ceil((endTimeRef.current - now) / 1000);
+    setRemainingSeconds(left > 0 ? left : 0);
     setIsRunning(false);
+    pausedTimeRef.current = now; // Not strictly needed with this logic but good for debug
+    endTimeRef.current = null; // Clear target as we are not running
   };
 
   const resumeTimer = () => {
-    setIsPaused(false);
+    if (remainingSeconds <= 0) return;
+    const now = Date.now();
+    endTimeRef.current = now + remainingSeconds * 1000;
     setIsRunning(true);
   };
 
   const resetTimer = () => {
-    setSeconds(0);
+    setRemainingSeconds(0);
     setIsRunning(false);
-    setIsPaused(false);
+    endTimeRef.current = null;
   };
 
   const stopTimer = () => {
-    setSeconds(0);
-    setIsRunning(false);
-    setIsPaused(false);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
+    resetTimer();
   };
 
   const formatTime = (totalSeconds: number): string => {
@@ -83,52 +122,50 @@ export function RestTimer({ onComplete }: RestTimerProps) {
     return `${secs}s`;
   };
 
-  const isActive = seconds > 0 && (isRunning || isPaused);
-
   return (
     <View style={styles.container}>
       <Text style={styles.label}>REST TIMER</Text>
-      
-      {!isActive ? (
-        <View style={styles.presetContainer}>
-          <TouchableOpacity
-            style={styles.presetButton}
-            onPress={() => startTimer(30)}
-          >
-            <Text style={styles.presetText}>30s</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.presetButton}
-            onPress={() => startTimer(60)}
-          >
-            <Text style={styles.presetText}>60s</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.presetButton}
-            onPress={() => startTimer(90)}
-          >
-            <Text style={styles.presetText}>90s</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.presetButton}
-            onPress={() => startTimer(120)}
-          >
-            <Text style={styles.presetText}>120s</Text>
-          </TouchableOpacity>
+
+      {remainingSeconds === 0 && !isRunning ? (
+        <View style={styles.setupContainer}>
+          <View style={styles.presetGrid}>
+            {[60, 90, 120, 170, 180, 240].map((time) => (
+              <TouchableOpacity
+                key={time}
+                style={styles.presetButton}
+                onPress={() => startTimer(time)}
+              >
+                <Text style={styles.presetText}>{time}s</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.customInputContainer}>
+            <TextInput
+              style={styles.customInput}
+              placeholder="Custom (sec)"
+              placeholderTextColor={Colors.textTertiary}
+              keyboardType="number-pad"
+              onSubmitEditing={(e) => {
+                const val = parseInt(e.nativeEvent.text, 10);
+                if (val > 0) startTimer(val);
+              }}
+            />
+          </View>
         </View>
       ) : (
         <>
           <View style={styles.timerDisplay}>
             <Text style={[
               styles.timerText,
-              seconds <= 10 && styles.timerTextWarning
+              remainingSeconds <= 10 && styles.timerTextWarning
             ]}>
-              {formatTime(seconds)}
+              {formatTime(remainingSeconds)}
             </Text>
           </View>
-          
+
           <View style={styles.controlsContainer}>
-            {isPaused ? (
+            {!isRunning ? (
               <TouchableOpacity
                 style={[styles.controlButton, styles.resumeButton]}
                 onPress={resumeTimer}
@@ -179,16 +216,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textAlign: "center",
   },
-  presetContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
+  setupContainer: {
+    gap: 12,
+  },
+  presetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
+    justifyContent: 'center',
   },
   presetButton: {
-    flex: 1,
+    minWidth: '30%',
     backgroundColor: Colors.surface,
     paddingVertical: 12,
-    paddingHorizontal: 8,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -198,6 +238,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: Colors.textPrimary,
+  },
+  customInputContainer: {
+    marginTop: 4,
+  },
+  customInput: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 6,
+    padding: 10,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    fontSize: 14,
   },
   timerDisplay: {
     alignItems: "center",

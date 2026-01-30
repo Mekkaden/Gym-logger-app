@@ -7,43 +7,83 @@ interface SetRowProps {
   set: Set;
   index: number;
   onRemove: () => void;
+  onPress?: () => void;
 }
 
-export function SetRow({ set, index, onRemove }: SetRowProps) {
+export function SetRow({ set, index, onRemove, onPress }: SetRowProps) {
   return (
-    <View style={styles.row}>
-      <Text style={styles.index}>{index + 1}</Text>
-      <Text style={styles.details}>
-        {set.weight}kg × {set.reps}
-        {set.rir !== undefined && ` @ ${set.rir} RIR`}
-      </Text>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={styles.leftContent}>
+        <Text style={styles.index}>{index + 1}</Text>
+        <Text style={styles.details}>
+          <Text style={styles.weight}>{set.weight}kg</Text>
+          <Text style={styles.separator}> × </Text>
+          <Text style={styles.reps}>{set.reps}</Text>
+          {set.rir !== undefined && (
+            <Text style={styles.rir}> @ {set.rir} RIR</Text>
+          )}
+          {set.isPR && <Text style={styles.prIcon}> 🏆</Text>}
+        </Text>
+      </View>
       <TouchableOpacity onPress={onRemove} style={styles.removeButton}>
-        <Text style={styles.removeText}>×</Text>
+        <Text style={styles.removeIcon}>×</Text>
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
+  container: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.divider,
   },
+  leftContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   index: {
-    width: 28,
-    fontSize: 13,
+    width: 24,
+    fontSize: 12,
     color: Colors.textTertiary,
     fontWeight: "600",
+    marginRight: 8,
   },
   details: {
     flex: 1,
-    fontSize: 15,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  weight: {
+    fontSize: 14,
     color: Colors.textPrimary,
-    fontWeight: "500",
+    fontWeight: "600",
+  },
+  separator: {
+    fontSize: 14,
+    color: Colors.textTertiary,
+    marginHorizontal: 4,
+  },
+  reps: {
+    fontSize: 14,
+    color: Colors.textPrimary,
+    fontWeight: "600",
+  },
+  rir: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginLeft: 4,
+    fontStyle: "italic",
+  },
+  prIcon: {
+    fontSize: 12,
   },
   removeButton: {
     width: 28,
@@ -55,7 +95,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.accentLight,
   },
-  removeText: {
+  removeIcon: {
     color: Colors.textPrimary,
     fontSize: 18,
     fontWeight: "700",
