@@ -55,7 +55,7 @@ Ensure you have **Node.js** installed and the **Expo Go** app on your mobile dev
 
 ##  Development Philosophy
 
-This project is **AI-assisted and learning-driven**. AI tools were utilized for prototyping and understanding complex React Native concepts. The primary goal is hands-on experimentation, iteration, and mastering the mobile development lifecycle.
+This project is **AI-assisted and learning-driven**. AI tools were utilized for prototyping  complex React Native concepts. The primary goal is hands-on experimentation, iteration, and mastering the mobile development lifecycle.
 
 ---
 
