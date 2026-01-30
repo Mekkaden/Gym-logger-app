@@ -1,4 +1,4 @@
-# 🏋️ Gym Logger
+#  Gym Logger
 
 A high-performance, personal workout logging app built with **React Native (Expo)**. This project is designed for minimal friction during training, focusing on fast data entry and progress tracking.
 
@@ -6,7 +6,7 @@ A high-performance, personal workout logging app built with **React Native (Expo
 
 ---
 
-## 🚀 Features
+##  Features
 
 * **Daily Flow**: Automatically loads today’s workout on launch to get you moving instantly.
 * **Fast Gym Input**: Large, accessible input fields for Weight, Reps, and **RIR** (Reps In Reserve).
@@ -19,7 +19,7 @@ A high-performance, personal workout logging app built with **React Native (Expo
 
 ---
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 * **Framework**: React Native (Expo Managed Workflow)
 * **Language**: TypeScript
@@ -29,7 +29,7 @@ A high-performance, personal workout logging app built with **React Native (Expo
 
 ---
 
-## 📥 Installation
+##  Installation
 
 Ensure you have **Node.js** installed and the **Expo Go** app on your mobile device.
 
@@ -53,7 +53,7 @@ Ensure you have **Node.js** installed and the **Expo Go** app on your mobile dev
 
 ---
 
-## 🧠 Development Philosophy
+##  Development Philosophy
 
 This project is **AI-assisted and learning-driven**. AI tools were utilized for prototyping and understanding complex React Native concepts. The primary goal is hands-on experimentation, iteration, and mastering the mobile development lifecycle.
 
