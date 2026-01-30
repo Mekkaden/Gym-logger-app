@@ -1,34 +1,48 @@
 # Gym Logger
 
-A production-grade, offline-first gym workout tracking app for Android built with React Native + Expo.
+A personal gym workout logging app built with React Native (Expo).
+
+This project is primarily built for **my own personal use** to log workouts and track progress, while learning React Native through hands-on experimentation.  
+It is not intended to be a finished or production-ready product.
+
+---
+
+## Overview
+
+Gym Logger is designed for fast, offline workout logging with minimal friction during training sessions.  
+The app structure and features reflect how I personally train and review my workouts.
+
+The project continues to evolve as I improve my understanding of React, JavaScript, and React Native.
+
+---
 
 ## Features
 
-- **Daily Workout Tracking**: Automatically loads today's workout on launch
-- **Exercise Management**: Add/remove exercises and sets
-- **Fast Gym Input**: Large buttons for quick weight/reps/RIR entry
-- **Exercise History**: View all previous sessions for any exercise
-- **1RM Estimation**: Track estimated 1RM over time with graphs
-- **Calendar View**: Navigate to past workouts via calendar
-- **Workout Summary**: Text summaries with RIR notes
+- **Daily Workout Tracking**: Automatically loads today’s workout on launch  
+- **Exercise Management**: Add and remove exercises and sets  
+- **Fast Gym Input**: Large inputs for quick weight / reps / RIR entry  
+- **Exercise History**: View previous sessions for any exercise  
+- **1RM Estimation**: Track estimated 1RM trends over time  
+- **Calendar View**: Navigate workouts by date  
+- **Workout Summary**: Text-based summaries with RIR notes  
+
+---
 
 ## Tech Stack
 
 - React Native (Expo managed workflow)
 - TypeScript
 - AsyncStorage for local persistence
-- React Navigation for navigation
-- React Native Calendars for calendar view
+- React Navigation
+- React Native Calendars
+
+---
 
 ## Installation
 
 ```bash
 npm install
-```
 
-## Running
-
-```bash
 # Start Expo
 npm start
 
@@ -36,46 +50,13 @@ npm start
 npm run android
 ```
 
-## Architecture
 
-### Data Model
-- **Set**: weight (kg), reps, RIR (optional)
-- **Exercise**: id (stable UUID), name, sets[]
-- **Workout**: date (YYYY-MM-DD), exercises[]
+ ## Notes on Development
 
-### Storage
-- Centralized storage service with error handling
-- All operations wrapped in try/catch
-- Data merged before saving (never overwrites unrelated days)
-- Stable keys: `workout:YYYY-MM-DD`
 
-### Principles
-- Offline-first (no backend, no network)
-- Never lose user data
-- Never crash due to bad input
-- Simple, readable code
-- Minimal dependencies
 
-## Project Structure
+AI tools were used during development to assist with learning, prototyping, and understanding unfamiliar React Native concepts.
 
-```
-src/
-  ├── services/
-  │   └── storage.ts          # Centralized AsyncStorage wrapper
-  ├── types/
-  │   └── workout.ts          # TypeScript types
-  ├── utils/
-  │   ├── date.ts             # Date utilities
-  │   ├── validation.ts       # Input validation
-  │   ├── uuid.ts             # ID generation
-  │   └── 1rm.ts              # 1RM estimation
-  ├── screens/
-  │   ├── DailyWorkout.tsx    # Main daily workout view
-  │   ├── ExerciseDetail.tsx  # Exercise detail (Track/History/Graph)
-  │   ├── Calendar.tsx        # Calendar view
-  │   └── WorkoutSummary.tsx  # Summary view
-  └── components/
-      ├── ExerciseCard.tsx
-      └── SetRow.tsx
-```
+This project is AI-assisted and learning-driven. The focus is on experimentation, iteration, and understanding behavior by running and modifying the code, rather than claiming full manual authorship of every line.
+
 
