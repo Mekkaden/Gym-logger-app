@@ -40,15 +40,17 @@ The project continues to evolve as I improve my understanding of React, JavaScri
 
 ## Installation
 
-```bash
+To try the app locally, make sure you have **Node.js** installed and the **Expo Go** app on your mobile device.
+
+Clone the repository, install dependencies, and start the Expo development server:
+
+git clone https://github.com/Mekkaden/Gym-logger-app.git
+cd Gym-logger-app
 npm install
+npx expo start
 
-# Start Expo
-npm start
+Scan the QR code shown in the terminal using the Expo Go app to run the app instantly on your device.
 
-# Run on Android
-npm run android
-```
 
 
  ## Notes on Development
